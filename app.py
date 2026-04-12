@@ -3,14 +3,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# Sayfa yapılandırması
 st.set_page_config(page_title="Predictive Maintenance Interface", layout="wide")
 st.title("Machine Warning System and Model Evaluation")
 
 
-# --- 1. VERİ YÜKLEME ---
+# --- 1. VERİ YÜKLEME FONKSİYONLARI ---
+
 @st.cache_data
 def load_sensor_data():
-    return pd.read_csv("Test_Data_Filtered.csv")
+    try:
+        return pd.read_csv("Test_Data_Filtered.csv")
+    except FileNotFoundError:
+        return pd.DataFrame()
 
 
 @st.cache_data
@@ -29,19 +34,34 @@ def load_score_data():
         return pd.DataFrame()
 
 
-test_df_filtered = load_sensor_data()
+@st.cache_data
+def load_all_predictions():
+    try:
+        return pd.read_csv("All_Model_Predictions.csv")
+    except FileNotFoundError:
+        return pd.DataFrame()
+
+
+# Verileri belleğe al
 df_metrics = load_metrics_data()
 df_scores = load_score_data()
+df_all_preds = load_all_predictions()
 
-PROBA_THRESHOLD = 0.5
+# --- 2. SOL MENÜ (SIDEBAR) FİLTRELERİ ---
 
-# --- 2. SOL MENÜ (SIDEBAR) FİLTRELERİ (Sekme 1, 2 ve 4 için) ---
 st.sidebar.header("🔍 Model Filtering")
-if not df_metrics.empty:
-    val_secim = st.sidebar.selectbox("Validation Technique:", ["All"] + list(df_metrics["Validation"].unique()))
-    norm_secim = st.sidebar.selectbox("Normalization:", ["All"] + list(df_metrics["Normalization"].unique()))
-    model_secim = st.sidebar.selectbox("Model Algorithm:", ["All"] + list(df_metrics["Model"].unique()))
 
+if not df_metrics.empty:
+    val_list = ["All"] + sorted(list(df_metrics["Validation"].unique()))
+    val_secim = st.sidebar.selectbox("Validation Technique:", val_list)
+
+    norm_list = ["All"] + sorted(list(df_metrics["Normalization"].unique()))
+    norm_secim = st.sidebar.selectbox("Normalization:", norm_list)
+
+    model_list = ["All"] + sorted(list(df_metrics["Model"].unique()))
+    model_secim = st.sidebar.selectbox("Model Algorithm:", model_list)
+
+    # Genel filtreleme işlemi (Tab 1, 2 ve 4 için)
     filtreli_df = df_metrics.copy()
     if val_secim != "All":
         filtreli_df = filtreli_df[filtreli_df["Validation"] == val_secim]
@@ -52,7 +72,8 @@ if not df_metrics.empty:
 else:
     filtreli_df = pd.DataFrame()
 
-# --- 3. SEKMELER (TABS) - YENİ SIRA ---
+# --- 3. SEKMELER (TABS) ---
+
 tab1, tab2, tab3, tab4 = st.tabs([
     "⚙️ Training Metrics",
     "🏆 Test Results",
@@ -61,121 +82,186 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ==========================================
-# SEKME 1: EĞİTİM (TRAIN) METRİKLERİ
+# SEKME 1: TRAINING METRICS
 # ==========================================
 with tab1:
     st.header("Training Set Performances")
-    if len(filtreli_df) > 0:
-        train_kolonlar = ["Validation", "Normalization", "Model", "Train_Accuracy", "Train_F1"]
-        mevcut_kolonlar = [col for col in train_kolonlar if col in filtreli_df.columns]
-        st.dataframe(filtreli_df[mevcut_kolonlar].sort_values(by="Train_F1", ascending=False), use_container_width=True)
+    if not filtreli_df.empty:
+        train_cols = ["Validation", "Normalization", "Model", "Train_Accuracy", "Train_F1"]
+        cols_to_show = [c for c in train_cols if c in filtreli_df.columns]
+        st.dataframe(filtreli_df[cols_to_show].sort_values(by="Train_F1", ascending=False), use_container_width=True)
     else:
-        st.warning("No Data.")
+        st.warning("No data found for the selected filters.")
 
 # ==========================================
-# SEKME 2: TEST METRİKLERİ VE CONFUSION MATRIX
+# SEKME 2: TEST RESULTS & CONFUSION MATRIX
 # ==========================================
 with tab2:
     st.header("Test Set Performance and Confusion Matrix")
-    if len(filtreli_df) > 0:
-        test_kolonlar = ["Validation", "Normalization", "Model", "Test_Accuracy", "Test_F1", "Test_Precision",
-                         "Test_Recall"]
-        mevcut_test_kolonlari = [col for col in test_kolonlar if col in filtreli_df.columns]
-        st.dataframe(filtreli_df[mevcut_test_kolonlari].sort_values(by="Test_F1", ascending=False),
-                     use_container_width=True)
+    if not filtreli_df.empty:
+        test_cols = ["Validation", "Normalization", "Model", "Test_Accuracy", "Test_F1", "Test_Precision",
+                     "Test_Recall"]
+        cols_to_show = [c for c in test_cols if c in filtreli_df.columns]
+        st.dataframe(filtreli_df[cols_to_show].sort_values(by="Test_F1", ascending=False), use_container_width=True)
 
         st.markdown("---")
         st.subheader("🧩 Confusion Matrix Analysis")
+
         kombinasyon_listesi = filtreli_df.apply(
             lambda
                 x: f"{x['Model']} | Norm: {x['Normalization']} | Val: {x['Validation']} (Test F1: {x.get('Test_F1', 0):.4f})",
             axis=1).tolist()
-        secilen_isim = st.selectbox("Matrix Combination:", kombinasyon_listesi)
-        secili_satir = filtreli_df.iloc[kombinasyon_listesi.index(secilen_isim)]
 
-        cm_col1, cm_col2 = st.columns([1, 2])
-        with cm_col1:
-            st.metric("TP", int(secili_satir['TP']))
-            st.metric("TN", int(secili_satir['TN']))
-            st.metric("FP", int(secili_satir['FP']))
-            st.metric("FN", int(secili_satir['FN']))
-        with cm_col2:
-            cm_matrix = [[int(secili_satir['TN']), int(secili_satir['FP'])],
-                         [int(secili_satir['FN']), int(secili_satir['TP'])]]
-            fig_cm, ax_cm = plt.subplots(figsize=(6, 4))
-            sns.heatmap(cm_matrix, annot=True, fmt="d", cmap="Blues",
-                        xticklabels=["Prediction: Sound (0)", "Prediction: Malfunction (1)"],
-                        yticklabels=["Fact: Sound (0)", "Fact: Malfunction (1)"])
-            ax_cm.set_title(f"Confusion Matrix: {secili_satir['Model']} ({secili_satir['Normalization']})")
-            st.pyplot(fig_cm)
+        if kombinasyon_listesi:
+            secilen_isim = st.selectbox("Select combination for Matrix:", kombinasyon_listesi)
+            secili_satir = filtreli_df.iloc[kombinasyon_listesi.index(secilen_isim)]
+
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.metric("True Positive (TP)", int(secili_satir['TP']))
+                st.metric("True Negative (TN)", int(secili_satir['TN']))
+                st.metric("False Positive (FP)", int(secili_satir['FP']))
+                st.metric("False Negative (FN)", int(secili_satir['FN']))
+
+            with c2:
+                cm_matrix = [[int(secili_satir['TN']), int(secili_satir['FP'])],
+                             [int(secili_satir['FN']), int(secili_satir['TP'])]]
+                fig_cm, ax_cm = plt.subplots(figsize=(6, 4))
+                sns.heatmap(cm_matrix, annot=True, fmt="d", cmap="Blues",
+                            xticklabels=["Pred: 0", "Pred: 1"],
+                            yticklabels=["True: 0", "True: 1"])
+                ax_cm.set_title(f"CM: {secili_satir['Model']} ({secili_satir['Normalization']})")
+                st.pyplot(fig_cm)
     else:
-        st.warning("No data.")
+        st.warning("No data found.")
 
 # ==========================================
-# SEKME 3: ZAMAN SERİSİ
+# SEKME 3: TIMELINE GRAPHS (EŞİK KONTROLÜ BURADA)
 # ==========================================
 with tab3:
-    st.header("Prediction Graphs")
-    remaining_data_nos = test_df_filtered["Data_No"].unique()
-    secili_data_no = st.selectbox("Select the machine you wish to examine:", remaining_data_nos)
-    demo = test_df_filtered[test_df_filtered["Data_No"] == secili_data_no].copy()
+    st.header("Prediction Graphs & Threshold Analysis")
 
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.plot(demo["Time"], demo["pred_proba"], label="pred_proba (warning)", color="blue")
-    ax.plot(demo["Time"], demo["warning_flag"], label="true warning_flag", color="orange")
-    ax.axhline(PROBA_THRESHOLD, linestyle="--", linewidth=1.5, color="red", label=f"Threshold ({PROBA_THRESHOLD})")
-    ax.set_title(f"Timeline (Data_No={secili_data_no})")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Probability / Flag")
-    ax.legend()
-    st.pyplot(fig)
+    if not df_all_preds.empty:
+        # 1. EŞİK KONTROLÜ (Bu sekmenin üstünde yer alır)
+        local_proba_threshold = st.slider(
+            "Select Probability Threshold (T) for this Graph:",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.50,
+            step=0.05
+        )
+
+        st.markdown("---")
+
+        # Sidebar filtrelerini grafik verisine uygula
+        graph_filter = df_all_preds.copy()
+        if val_secim != "All":
+            graph_filter = graph_filter[graph_filter["Validation"] == val_secim]
+        if norm_secim != "All":
+            graph_filter = graph_filter[graph_filter["Normalization"] == norm_secim]
+        if model_secim != "All":
+            graph_filter = graph_filter[graph_filter["Model"] == model_secim]
+
+        available_combos = graph_filter[["Model", "Normalization", "Validation"]].drop_duplicates()
+
+        if len(available_combos) > 1:
+            st.info("💡 Multiple models match your sidebar filters. Pick one to visualize:")
+            combo_names = available_combos.apply(lambda x: f"{x['Model']} | {x['Normalization']} | {x['Validation']}",
+                                                 axis=1).tolist()
+            picked_combo = st.selectbox("Visualization Model:", combo_names)
+            m, n, v = picked_combo.split(" | ")
+            plot_df = graph_filter[(graph_filter["Model"] == m) &
+                                   (graph_filter["Normalization"] == n) &
+                                   (graph_filter["Validation"] == v)]
+        elif len(available_combos) == 1:
+            plot_df = graph_filter
+        else:
+            plot_df = pd.DataFrame()
+
+        if not plot_df.empty:
+            data_nos = sorted(plot_df["Data_No"].unique())
+            secili_data_no = st.selectbox("Select Machine (Data_No):", data_nos)
+
+            demo_data = plot_df[plot_df["Data_No"] == secili_data_no].copy()
+
+            # Dinamik uyarı bayrağını seçilen yerel Threshold'a göre hesapla
+            demo_data["dynamic_warning"] = (demo_data["pred_proba"] >= local_proba_threshold).astype(int)
+
+            fig_tl, ax_tl = plt.subplots(figsize=(12, 4))
+            ax_tl.plot(demo_data["Time"], demo_data["pred_proba"], label="Prediction Probability", color="blue",
+                       alpha=0.5)
+            ax_tl.plot(demo_data["Time"], demo_data["warning_flag"], label="True Warning Flag", color="orange",
+                       linewidth=2.5)
+
+            # Seçilen eşik değerini kırmızı kesik çizgi olarak çiz
+            ax_tl.axhline(local_proba_threshold, linestyle="--", color="red",
+                          label=f"Threshold (T={local_proba_threshold})")
+
+            # Eşiği geçen noktaları işaretle
+            alarms = demo_data[demo_data["dynamic_warning"] == 1]
+            if not alarms.empty:
+                ax_tl.scatter(alarms["Time"], alarms["pred_proba"], color="red", marker="x", s=20,
+                              label="Alarm Triggered")
+
+            ax_tl.set_title(f"Timeline for Machine {secili_data_no} (Model: {plot_df['Model'].iloc[0]})")
+            ax_tl.set_xlabel("Time")
+            ax_tl.set_ylabel("Probability / Status")
+            ax_tl.legend(loc='upper left')
+            st.pyplot(fig_tl)
+
+            # Erken uyarı özeti
+            true_t = demo_data.loc[demo_data["warning_flag"] == 1, "Time"]
+            pred_t = demo_data.loc[demo_data["dynamic_warning"] == 1, "Time"]
+
+            if not true_t.empty and not pred_t.empty:
+                delta = pred_t.iloc[0] - true_t.iloc[0]
+                if delta < 0:
+                    st.success(f"✅ Early Warning: Model detected failure {abs(delta):.1f} units BEFORE actual event.")
+                else:
+                    st.error(f"⚠️ Late Warning: Model detected failure {delta:.1f} units AFTER actual event.")
+        else:
+            st.warning("No prediction data matches the current filters.")
+    else:
+        st.error("All_Model_Predictions.csv not found.")
 
 # ==========================================
-# SEKME 4: SKOR VE ALARM AYARLARI
+# SEKME 4: SCORE (ASİMETRİK SKOR)
 # ==========================================
 with tab4:
     st.header("Asymmetric Scoring and Alarm Optimization")
-
     if not df_scores.empty:
-        st.write("The effect of different Probability Thresholds and Consecutive Hit settings on penalty scores:")
-
-        # 1. Ana Sidebar'daki Filtreleri 4. Sekmeye de Uygula (Validation, Norm, Model)
-        filtreli_skor_df = df_scores.copy()
-
-        # Artık Validation kolonu olduğu için sol menüden K-Fold veya Holdout seçimi burayı da süzecek!
-        if val_secim != "All" and "Validation" in filtreli_skor_df.columns:
-            filtreli_skor_df = filtreli_skor_df[filtreli_skor_df["Validation"] == val_secim]
+        sc_filter = df_scores.copy()
+        if val_secim != "All":
+            sc_filter = sc_filter[sc_filter["Validation"] == val_secim]
         if norm_secim != "All":
-            filtreli_skor_df = filtreli_skor_df[filtreli_skor_df["Normalization"] == norm_secim]
+            sc_filter = sc_filter[sc_filter["Normalization"] == norm_secim]
         if model_secim != "All":
-            filtreli_skor_df = filtreli_skor_df[filtreli_skor_df["Model"] == model_secim]
+            sc_filter = sc_filter[sc_filter["Model"] == model_secim]
 
-        # 2. Sadece bu sekmeye özel (Threshold ve Hits) filtreleri
-        sc_col1, sc_col2 = st.columns(2)
-        with sc_col1:
-            thresh_secim = st.selectbox("Threshold:", ["All"] + sorted(list(df_scores["Threshold"].unique())))
-        with sc_col2:
-            hits_secim = st.selectbox("Hits:", ["All"] + sorted(list(df_scores["Consecutive_Hits"].unique())))
+        c1, c2 = st.columns(2)
+        with c1:
+            t_list = ["All"] + sorted(list(df_scores["Threshold"].unique()))
+            t_secim = st.selectbox("Select Optimized Threshold (T):", t_list)
+        with c2:
+            h_list = ["All"] + sorted(list(df_scores["Consecutive_Hits"].unique()))
+            h_secim = st.selectbox("Select Hits (K):", h_list)
 
-        if thresh_secim != "All":
-            filtreli_skor_df = filtreli_skor_df[filtreli_skor_df["Threshold"] == thresh_secim]
-        if hits_secim != "All":
-            filtreli_skor_df = filtreli_skor_df[filtreli_skor_df["Consecutive_Hits"] == hits_secim]
+        if t_secim != "All":
+            sc_filter = sc_filter[sc_filter["Threshold"] == t_secim]
+        if h_secim != "All":
+            sc_filter = sc_filter[sc_filter["Consecutive_Hits"] == h_secim]
 
-        st.markdown(f"**Results found ({len(filtreli_skor_df)} count - Sorted by lowest score):**")
-        st.dataframe(filtreli_skor_df.sort_values(by="Score", ascending=True), use_container_width=True)
+        st.dataframe(sc_filter.sort_values(by="Score", ascending=True), use_container_width=True)
 
-        # En iyi sonucu (Skoru en düşük olan) öne çıkarma
-        if len(filtreli_skor_df) > 0:
-            best_score_row = filtreli_skor_df.sort_values(by="Score", ascending=True).iloc[0]
+        if not sc_filter.empty:
+            best = sc_filter.sort_values(by="Score", ascending=True).iloc[0]
+            st.success(
+                f"🏆 Optimal Configuration: {best['Model']} | Norm: {best['Normalization']} | Score: {best['Score']:.2f}")
 
-            # Seçilen validasyon yöntemini de başlıkta belirtelim
-            st.success(f"🏆 The best score according to this filtering: **{best_score_row['Score']:.2f}** ile **{best_score_row['Model']}** (Norm: {best_score_row['Normalization']} | Val: {best_score_row['Validation']})")
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Score (Lower is Better)", f"{best_score_row['Score']:.2f}")
-            c2.metric("Missed failure", int(best_score_row['Missed_Alerts']))
-            c3.metric("Tolerable early", best_score_row['Tol_Early_Rate'])
-            c4.metric("Tolerable late", best_score_row['Tol_Late_Rate'])
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Score", f"{best['Score']:.2f}")
+            m2.metric("Missed", int(best['Missed_Alerts']))
+            m3.metric("Early Rate", best['Tol_Early_Rate'])
+            m4.metric("Late Rate", best['Tol_Late_Rate'])
     else:
-        st.warning("The file Model_Skorlari_GridSearch.csv could not be found. Please run the grid search code in Jupyter Notebook.")
+        st.warning("Model_Skorlari_GridSearch.csv not found.")
