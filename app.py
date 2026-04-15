@@ -205,7 +205,7 @@ with tab3:
                                                label="Alarm Triggered")
 
             ax_tl.set_title(f"Timeline for Machine {secili_data_no} (Model: {plot_df['Model'].iloc[0]})")
-            ax_tl.set_xlabel("Time (Cycles)")
+            ax_tl.set_xlabel("Time (seconds)")
             ax_tl.set_ylabel("Probability / Status")
             ax_tl.legend(loc='upper left', bbox_to_anchor=(1, 1))
             st.pyplot(fig_tl)
@@ -215,9 +215,9 @@ with tab3:
             if not true_t.empty and not pred_t.empty:
                 delta = pred_t.iloc[0] - true_t.iloc[0]
                 if delta < 0:
-                    st.success(f"✅ Early Warning: Model detected failure {abs(delta):.1f} cycles BEFORE actual event.")
+                    st.success(f"✅ Early Warning: Model detected failure {abs(delta):.1f} seconds BEFORE actual event.")
                 else:
-                    st.error(f"⚠️ Late Warning: Model detected failure {delta:.1f} cycles AFTER actual event.")
+                    st.error(f"⚠️ Late Warning: Model detected failure {delta:.1f} seconds AFTER actual event.")
         else:
             st.warning("No prediction data matches the current filters.")
     else:
