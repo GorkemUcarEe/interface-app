@@ -323,76 +323,80 @@ with tab5:
                 # Calculate original lengths before windowing
                 group_lengths = model_preds.groupby("Data_No").size().reset_index(name="group_total_rows_before_window")
 
+                # SAFELY Apply moving bracket logic (avoiding Pandas apply KeyError)
+                limited_frames = []
+                for _, g in model_preds.sort_values(["Data_No", "Time"]).groupby("Data_No"):
+                    limited_frames.append(select_moving_bracket(g, WINDOW_M, WINDOW_N))
 
-                # Apply moving bracket logic
-                def apply_mb(g):
-                    return select_moving_bracket(g, WINDOW_M, WINDOW_N)
+                if limited_frames:
+                    limited_preds = pd.concat(limited_frames, ignore_index=True)
+                else:
+                    limited_preds = pd.DataFrame(columns=model_preds.columns)
 
+                if not limited_preds.empty:
+                    limited_preds["y_pred"] = (limited_preds["pred_proba"] >= 0.5).astype(int)
 
-                limited_preds = model_preds.sort_values(["Data_No", "Time"]).groupby("Data_No", group_keys=False).apply(
-                    apply_mb).reset_index(drop=True)
-                limited_preds["y_pred"] = (limited_preds["pred_proba"] >= 0.5).astype(int)
+                    # --- TABLE 1: Rows Kept ---
+                    st.markdown("#### 1. Rows Kept per Data_No")
+                    rows_kept = limited_preds.groupby("Data_No").agg(
+                        rows_kept=("Data_No", "size"),
+                        time_min=("Time", "min"),
+                        time_max=("Time", "max")
+                    ).reset_index()
+                    rows_kept["requested_rows"] = WINDOW_M - WINDOW_N
+                    st.dataframe(rows_kept, use_container_width=True)
 
-                # --- TABLE 1: Rows Kept ---
-                st.markdown("#### 1. Rows Kept per Data_No")
-                rows_kept = limited_preds.groupby("Data_No").agg(
-                    rows_kept=("Data_No", "size"),
-                    time_min=("Time", "min"),
-                    time_max=("Time", "max")
-                ).reset_index()
-                rows_kept["requested_rows"] = WINDOW_M - WINDOW_N
-                st.dataframe(rows_kept, use_container_width=True)
+                    group_metric_rows = []
+                    group_range_rows = []
 
-                group_metric_rows = []
-                group_range_rows = []
+                    for data_no, g in limited_preds.groupby("Data_No"):
+                        y_true = g["warning_flag"].values
+                        y_pred = g["y_pred"].values
 
-                for data_no, g in limited_preds.groupby("Data_No"):
-                    y_true = g["warning_flag"].values
-                    y_pred = g["y_pred"].values
+                        acc = accuracy_score(y_true, y_pred)
+                        prec, rec, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary",
+                                                                           zero_division=0)
+                        pos_rate = np.mean(y_true)
 
-                    acc = accuracy_score(y_true, y_pred)
-                    prec, rec, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary",
-                                                                       zero_division=0)
-                    pos_rate = np.mean(y_true)
+                        true_alert_idx = g.loc[g["warning_flag"] == 1, "Time"]
+                        true_alert_t = float(true_alert_idx.iloc[0]) if len(true_alert_idx) > 0 else np.nan
 
-                    true_alert_idx = g.loc[g["warning_flag"] == 1, "Time"]
-                    true_alert_t = float(true_alert_idx.iloc[0]) if len(true_alert_idx) > 0 else np.nan
+                        pred_alert_idx = g.loc[g["y_pred"] == 1, "Time"]
+                        pred_alert_t = float(pred_alert_idx.iloc[0]) if len(pred_alert_idx) > 0 else np.nan
 
-                    pred_alert_idx = g.loc[g["y_pred"] == 1, "Time"]
-                    pred_alert_t = float(pred_alert_idx.iloc[0]) if len(pred_alert_idx) > 0 else np.nan
+                        total_len = \
+                        group_lengths.loc[group_lengths["Data_No"] == data_no, "group_total_rows_before_window"].iloc[0]
+                        actual_rows = len(g)
 
-                    total_len = \
-                    group_lengths.loc[group_lengths["Data_No"] == data_no, "group_total_rows_before_window"].iloc[0]
-                    actual_rows = len(g)
+                        group_metric_rows.append({
+                            "Data_No": data_no, "n_rows": actual_rows, "positive_rate": pos_rate,
+                            "accuracy": acc, "precision": prec, "recall": rec, "f1": f1
+                        })
 
-                    group_metric_rows.append({
-                        "Data_No": data_no, "n_rows": actual_rows, "positive_rate": pos_rate,
-                        "accuracy": acc, "precision": prec, "recall": rec, "f1": f1
-                    })
+                        delta = pred_alert_t - true_alert_t if (
+                                    pd.notna(true_alert_t) and pd.notna(pred_alert_t)) else np.nan
 
-                    delta = pred_alert_t - true_alert_t if (
-                                pd.notna(true_alert_t) and pd.notna(pred_alert_t)) else np.nan
+                        effective_start = min(WINDOW_M, total_len) if actual_rows > 0 else np.nan
+                        effective_stop = min(WINDOW_N, total_len) if actual_rows > 0 else np.nan
 
-                    effective_start = min(WINDOW_M, total_len) if actual_rows > 0 else np.nan
-                    effective_stop = min(WINDOW_N, total_len) if actual_rows > 0 else np.nan
+                        group_range_rows.append({
+                            "Data_No": data_no, "total_rows_before_window": total_len,
+                            "actual_start_last": effective_start, "actual_end_last_exclusive": effective_stop,
+                            "actual_rows_kept": actual_rows, "true_alert_time": true_alert_t,
+                            "pred_alert_time": pred_alert_t, "delta_time(pred-true)": delta,
+                            "mean_pred_proba": g["pred_proba"].mean(), "max_pred_proba": g["pred_proba"].max(),
+                            "min_pred_proba": g["pred_proba"].min()
+                        })
 
-                    group_range_rows.append({
-                        "Data_No": data_no, "total_rows_before_window": total_len,
-                        "actual_start_last": effective_start, "actual_end_last_exclusive": effective_stop,
-                        "actual_rows_kept": actual_rows, "true_alert_time": true_alert_t,
-                        "pred_alert_time": pred_alert_t, "delta_time(pred-true)": delta,
-                        "mean_pred_proba": g["pred_proba"].mean(), "max_pred_proba": g["pred_proba"].max(),
-                        "min_pred_proba": g["pred_proba"].min()
-                    })
+                    # --- TABLE 2: Metrics per Data_No ---
+                    st.markdown("#### 2. Per-Machine Metrics")
+                    st.dataframe(pd.DataFrame(group_metric_rows), use_container_width=True)
 
-                # --- TABLE 2: Metrics per Data_No ---
-                st.markdown("#### 2. Per-Machine Metrics")
-                st.dataframe(pd.DataFrame(group_metric_rows), use_container_width=True)
-
-                # --- TABLE 3: Window & Alert Times per Data_No ---
-                st.markdown("#### 3. Per-Machine Window & Range Metrics")
-                st.dataframe(pd.DataFrame(group_range_rows), use_container_width=True)
-
+                    # --- TABLE 3: Window & Alert Times per Data_No ---
+                    st.markdown("#### 3. Per-Machine Window & Range Metrics")
+                    st.dataframe(pd.DataFrame(group_range_rows), use_container_width=True)
+                else:
+                    st.warning("No data remains after applying the Moving Bracket window.")
             else:
                 st.warning("No prediction details found for the selected model.")
     else:
