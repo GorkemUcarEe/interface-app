@@ -224,22 +224,12 @@ with tab3:
         st.error("All_Model_Predictions.csv not found.")
 
 # ==========================================
-# TAB 4: SCORE
+# TAB 4: SCORE (ORİJİNAL HALİNE DÖNDÜ)
 # ==========================================
 with tab4:
     st.header("Asymmetric Scoring and Alarm Optimization")
     if not df_scores.empty:
-        st.markdown("### 🎚️ Tolerance Window Setting")
-        if "Tolerance" in df_scores.columns:
-            tol_list = sorted(list(df_scores["Tolerance"].unique()))
-            selected_tol = st.select_slider("Select Tolerance Window Size (± Cycles):", options=tol_list,
-                                            value=tol_list[len(tol_list) // 2])
-            sc_filter = df_scores[df_scores["Tolerance"] == selected_tol].copy()
-        else:
-            st.warning("Tolerance column not found in CSV.")
-            sc_filter = df_scores.copy()
-
-        st.markdown("---")
+        sc_filter = df_scores.copy()
         if val_secim != "All": sc_filter = sc_filter[sc_filter["Validation"] == val_secim]
         if norm_secim != "All": sc_filter = sc_filter[sc_filter["Normalization"] == norm_secim]
         if model_secim != "All": sc_filter = sc_filter[sc_filter["Model"] == model_secim]
@@ -323,7 +313,7 @@ with tab5:
                 # Calculate original lengths before windowing
                 group_lengths = model_preds.groupby("Data_No").size().reset_index(name="group_total_rows_before_window")
 
-                # SAFELY Apply moving bracket logic (avoiding Pandas apply KeyError)
+                # SAFELY Apply moving bracket logic
                 limited_frames = []
                 for _, g in model_preds.sort_values(["Data_No", "Time"]).groupby("Data_No"):
                     limited_frames.append(select_moving_bracket(g, WINDOW_M, WINDOW_N))
