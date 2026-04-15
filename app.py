@@ -69,7 +69,7 @@ def select_moving_bracket(df_group, start_last_m, stop_last_n, strict=False):
     return g.iloc[start_idx:stop_idx].copy()
 
 
-WINDOW_M = 495
+WINDOW_M = 230
 WINDOW_N = 0
 
 # --- 2. SIDEBAR FILTERS ---
