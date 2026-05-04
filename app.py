@@ -35,6 +35,13 @@ def load_score_data():
     except FileNotFoundError:
         return pd.DataFrame()
 
+@st.cache_data
+def load_score_data1():
+    try:
+        return pd.read_csv("Model_Skorlari_GridSearch1.csv")
+    except FileNotFoundError:
+        return pd.DataFrame()
+
 
 @st.cache_data
 def load_all_predictions():
@@ -54,6 +61,7 @@ def load_mb_metrics():
 
 df_metrics = load_metrics_data()
 df_scores = load_score_data()
+df_scores1 = load_score_data1()
 df_all_preds = load_all_predictions()
 df_mb_metrics = load_mb_metrics()
 
@@ -102,11 +110,12 @@ else:
 
 # --- 3. TABS ---
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "⚙️ Training Metrics",
     "🏆 Test Results",
     "📈 Timeline Graphs",
-    "🎯 Score",
+    "🎯 Score-1",
+    "🎯 Score-2",
     "🔎 Moving Bracket"
 ])
 
@@ -222,11 +231,40 @@ with tab3:
             st.warning("No prediction data matches the current filters.")
     else:
         st.error("All_Model_Predictions.csv not found.")
-
-## ==========================================
-# TAB 4: DYNAMIC ASYMMETRIC SCORING
-# ==========================================
 with tab4:
+    st.header("Asymmetric Scoring and Alarm Optimization")
+    if not df_scores1.empty:
+        sc_filter = df_scores1.copy()
+        if val_secim != "All": sc_filter = sc_filter[sc_filter["Validation"] == val_secim]
+        if norm_secim != "All": sc_filter = sc_filter[sc_filter["Normalization"] == norm_secim]
+        if model_secim != "All": sc_filter = sc_filter[sc_filter["Model"] == model_secim]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            t_secim = st.selectbox("Select Probability Threshold (T):",
+                                   ["All"] + sorted(list(df_scores1["Threshold"].unique())))
+        with col2:
+            h_secim = st.selectbox("Select Hits (K):", ["All"] + sorted(list(df_scores1["Consecutive_Hits"].unique())))
+
+        if t_secim != "All": sc_filter = sc_filter[sc_filter["Threshold"] == t_secim]
+        if h_secim != "All": sc_filter = sc_filter[sc_filter["Consecutive_Hits"] == h_secim]
+
+        st.dataframe(sc_filter.sort_values(by="Score", ascending=True), use_container_width=True)
+
+        if not sc_filter.empty:
+            best = sc_filter.sort_values(by="Score", ascending=True).iloc[0]
+            st.success(f"🏆 Best Result: {best['Model']} | Norm: {best['Normalization']} | Score: {best['Score']:.2f}")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Penalty Score", f"{best['Score']:.2f}")
+            m2.metric("Missed Failures", int(best['Missed_Alerts']))
+            m3.metric("Tolerable Early Rate", best['Tol_Early_Rate'])
+            m4.metric("Tolerable Late Rate", best['Tol_Late_Rate'])
+    else:
+        st.warning("Model_Skorlari_GridSearch1.csv not found.")
+# ==========================================
+# TAB 4: SCORE (ORİJİNAL HALİNE DÖNDÜ)
+# ==========================================
+with tab5:
     st.header("🎯 Dynamic Asymmetric Scoring and Optimization")
 
     if not df_scores.empty:
@@ -242,7 +280,6 @@ with tab4:
             sc_filter = sc_filter[sc_filter["Model"] == model_secim]
 
         # 2. Yeni metrikler için 4'lü filtre menüsü (T, K, Early Tol, Late Tol)
-        st.subheader("🔍 Filtreler")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             t_secim = st.selectbox("Threshold (T):", ["All"] + sorted(list(df_scores["Threshold"].unique())))
@@ -304,7 +341,7 @@ with tab4:
 # ==========================================
 # TAB 5: MOVING BRACKET (FULL DETAILS)
 # ==========================================
-with tab5:
+with tab6:
     st.header("Moving Bracket Evaluation")
     st.info(
         f"Metrics below are evaluated strictly on the critical window (M={WINDOW_M}, N={WINDOW_N}). Easy early predictions are excluded.")
