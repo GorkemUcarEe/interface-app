@@ -223,39 +223,83 @@ with tab3:
     else:
         st.error("All_Model_Predictions.csv not found.")
 
-# ==========================================
-# TAB 4: SCORE (ORİJİNAL HALİNE DÖNDÜ)
+## ==========================================
+# TAB 4: DYNAMIC ASYMMETRIC SCORING
 # ==========================================
 with tab4:
-    st.header("Asymmetric Scoring and Alarm Optimization")
+    st.header("🎯 Dynamic Asymmetric Scoring and Optimization")
+
     if not df_scores.empty:
         sc_filter = df_scores.copy()
-        if val_secim != "All": sc_filter = sc_filter[sc_filter["Validation"] == val_secim]
-        if norm_secim != "All": sc_filter = sc_filter[sc_filter["Normalization"] == norm_secim]
-        if model_secim != "All": sc_filter = sc_filter[sc_filter["Model"] == model_secim]
 
-        col1, col2 = st.columns(2)
+        # 1. Global sidebar filtrelerini GÜVENLİ bir şekilde uygula
+        # Yeni skor dosyasında "Validation" kolonu olmayabileceği için önce kolonun varlığını kontrol ediyoruz
+        if "Validation" in sc_filter.columns and val_secim != "All":
+            sc_filter = sc_filter[sc_filter["Validation"] == val_secim]
+        if "Normalization" in sc_filter.columns and norm_secim != "All":
+            sc_filter = sc_filter[sc_filter["Normalization"] == norm_secim]
+        if "Model" in sc_filter.columns and model_secim != "All":
+            sc_filter = sc_filter[sc_filter["Model"] == model_secim]
+
+        # 2. Yeni metrikler için 4'lü filtre menüsü (T, K, Early Tol, Late Tol)
+        st.subheader("🔍 Filtreler")
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            t_secim = st.selectbox("Select Probability Threshold (T):",
-                                   ["All"] + sorted(list(df_scores["Threshold"].unique())))
+            t_secim = st.selectbox("Threshold (T):", ["All"] + sorted(list(df_scores["Threshold"].unique())))
         with col2:
-            h_secim = st.selectbox("Select Hits (K):", ["All"] + sorted(list(df_scores["Consecutive_Hits"].unique())))
+            h_secim = st.selectbox("Hits (K):", ["All"] + sorted(list(df_scores["Consecutive_Hits"].unique())))
+        with col3:
+            e_tol_secim = st.selectbox("Early Tol Frac:", ["All"] + sorted(list(df_scores["Early_Tol_Frac"].unique())))
+        with col4:
+            l_tol_secim = st.selectbox("Late Tol Frac:", ["All"] + sorted(list(df_scores["Late_Tol_Frac"].unique())))
 
         if t_secim != "All": sc_filter = sc_filter[sc_filter["Threshold"] == t_secim]
         if h_secim != "All": sc_filter = sc_filter[sc_filter["Consecutive_Hits"] == h_secim]
+        if e_tol_secim != "All": sc_filter = sc_filter[sc_filter["Early_Tol_Frac"] == e_tol_secim]
+        if l_tol_secim != "All": sc_filter = sc_filter[sc_filter["Late_Tol_Frac"] == l_tol_secim]
 
+        # 3. Filtrelenmiş Tabloyu Göster
         st.dataframe(sc_filter.sort_values(by="Score", ascending=True), use_container_width=True)
 
+        # 4. Notebook Çıktısının Arayüze Birebir Yansıması
         if not sc_filter.empty:
             best = sc_filter.sort_values(by="Score", ascending=True).iloc[0]
-            st.success(f"🏆 Best Result: {best['Model']} | Norm: {best['Normalization']} | Score: {best['Score']:.2f}")
+
+            st.markdown("---")
+            st.markdown("<h3 style='text-align: center;'>🏆 BEST COMBINATION FOUND 🏆</h3>", unsafe_allow_html=True)
+            st.markdown("---")
+
+            # İlk Satır: Ana Parametreler
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Penalty Score", f"{best['Score']:.2f}")
-            m2.metric("Missed Failures", int(best['Missed_Alerts']))
-            m3.metric("Tolerable Early Rate", best['Tol_Early_Rate'])
-            m4.metric("Tolerable Late Rate", best['Tol_Late_Rate'])
+            m1.metric("Model Algorithm", str(best.get('Model', 'N/A')))
+            m2.metric("Normalization", str(best.get('Normalization', 'N/A')))
+            m3.metric("Threshold (T)", f"{best.get('Threshold', 0):.2f}")
+            m4.metric("Consecutive Hits (K)", f"{best.get('Consecutive_Hits', 0)}")
+
+            # İkinci Satır: Toleranslar ve Ana Skor
+            m5, m6, m7, m8 = st.columns(4)
+            m5.metric("Early Tolerance", f"{float(best.get('Early_Tol_Frac', 0)) * 100:.2f}%")
+            m6.metric("Late Tolerance", f"{float(best.get('Late_Tol_Frac', 0)) * 100:.2f}%")
+            m7.metric("🏆 Obtained Score", f"{best.get('Score', 0):.2f}")
+            m8.metric("Missed Alerts", int(best.get('Missed_Alerts', 0)))
+
+            # Üçüncü Satır: Detaylı Performans
+            m9, m10, m11, m12 = st.columns(4)
+            m9.metric("Mean Delta", f"{best.get('Mean_Delta', 0):.3f}")
+            m10.metric("MAE", f"{best.get('MAE', 0):.3f}")
+            m11.metric("Acceptable Early Zone", str(best.get('Tol_Early_Rate', 'N/A')))
+            m12.metric("Acceptable Late Zone", str(best.get('Tol_Late_Rate', 'N/A')))
+
+            # Alt Kısım: Dinamik T_ oranları
+            st.info(f"""
+            **Dynamic T_* fractions anchored to 120-second average runtime:**
+            - **T_tol_early :** {float(best.get('Base_T_tol_early_Frac', 0)) * 100:.2f}%
+            - **T_tol_late  :** {float(best.get('Base_T_tol_late_Frac', 0)) * 100:.2f}%
+            - **T_far_early :** {float(best.get('Base_T_far_early_Frac', 0)) * 100:.2f}%
+            - **T_far_late  :** {float(best.get('Base_T_far_late_Frac', 0)) * 100:.2f}%
+            """)
     else:
-        st.warning("Model_Skorlari_GridSearch.csv not found.")
+        st.warning("Model_Skorlari_GridSearch.csv dosyası bulunamadı veya boş.")
 
 # ==========================================
 # TAB 5: MOVING BRACKET (FULL DETAILS)
